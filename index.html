@@ -111,6 +111,22 @@ main{padding:14px 12px 120px}
 .stu .cnt{position:absolute;top:-9px;right:-6px;background:var(--gold);color:#7a5a00;
   border-radius:99px;font-size:clamp(12px,1.5vh,16px);padding:.1em .5em;border:2px solid #fff}
 
+/* 팀 만들기 */
+.teams{display:flex;flex-direction:column;gap:10px;margin:.4em 0 .2em}
+.team{border:3px solid var(--line);border-radius:18px;padding:.55em .7em;background:#fdfcff;
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;cursor:pointer;transition:border-color .15s,background .15s}
+.team.on{border-color:var(--blue);background:#f2f7ff;box-shadow:0 3px 0 rgba(0,0,0,.07)}
+.team .tt{font-size:clamp(16px,2.1vh,22px);color:var(--blue-d);min-width:4.2em}
+.team .mm{display:flex;flex-wrap:wrap;gap:6px;flex:1}
+.team .mm b{font-weight:normal;background:#eaf7f0;border:2px solid #bfe6d1;color:var(--green-d);
+  border-radius:12px;padding:.12em .5em;font-size:clamp(16px,2.1vh,24px)}
+.team .mm .none{color:var(--sub);font-size:clamp(14px,1.8vh,18px)}
+.team .del{color:#d9534f;font-size:clamp(13px,1.6vh,16px);border:2px solid var(--line);
+  border-radius:12px;padding:.3em .6em;background:#fff}
+.team .cnt{font-size:clamp(13px,1.6vh,17px);color:var(--sub)}
+.pickbar{margin:.8em 0 .5em;font-size:clamp(15px,2vh,20px);color:var(--ink)}
+.pickbar b{color:var(--blue-d)}
+
 /* 결과 */
 .res{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(clamp(240px,30vw,420px),1fr))}
 .rcard{border-radius:22px;background:#fff;border:3px solid var(--line);box-shadow:var(--shadow);padding:.9em 1em 1.1em}
@@ -121,6 +137,10 @@ main{padding:14px 12px 120px}
   border-radius:14px;padding:.2em .6em;font-size:clamp(19px,2.6vh,30px)}
 .wait{margin-top:.6em;font-size:clamp(14px,1.8vh,19px);color:var(--sub)}
 .wait b{font-weight:normal;color:var(--orange)}
+.tbox{border:2px dashed var(--line);border-radius:16px;padding:.45em .6em;margin-bottom:7px}
+.tbox .lb{font-size:clamp(13px,1.7vh,18px);color:var(--sub);margin-bottom:.2em}
+.sg .tbox{border-width:3px;border-radius:20px;padding:.6em .8em;margin-bottom:1vh}
+.sg .tbox .lb{font-size:clamp(15px,2.1vh,26px)}
 
 /* 기록 */
 .rank{display:flex;flex-direction:column;gap:6px}
@@ -253,11 +273,14 @@ textarea{min-height:26vh;line-height:1.55;resize:vertical}
   <div class="foot"><button class="btn primary big" id="btnCloseShow">닫기</button></div>
 </div>
 
-<!-- 학생 고르기 -->
+<!-- 팀 만들기 -->
 <div class="modal" id="mPick">
   <div class="sheet">
     <h3 id="pickTitle"></h3>
     <p class="hint" id="pickHint"></p>
+    <div class="teams" id="teamList"></div>
+    <div class="row"><button class="btn mini primary" id="btnAddTeam">＋ 새 팀 만들기</button></div>
+    <div class="pickbar" id="pickBar"></div>
     <div class="stus" id="pickStus"></div>
     <div class="row end"><button class="btn primary" id="btnClosePick">다 했어요</button></div>
   </div>
@@ -328,7 +351,7 @@ const DEFAULT_GAMES=[
   {id:'g4',emoji:'🔢',name:'루미큐브',copies:1,players:4}
 ];
 
-let S=load(), view='apply', pickGame=null;
+let S=load(), view='apply';
 
 function load(){
   try{
@@ -344,7 +367,12 @@ function normalize(d){
     .map(g=>({id:g.id||uid(), emoji:g.emoji||'🎲', name:g.name||'보드게임',
               copies:Math.max(1,+g.copies||1), players:Math.max(1,+g.players||4)}));
   d.stats=d.stats||{};
-  d.apply=d.apply||{};
+  // 예전 「한 명씩 신청」 자료가 있으면 1인 팀으로 옮긴다
+  if(!d.teams && d.apply){
+    d.teams=Object.entries(d.apply).map(([sid,gid])=>({id:uid(), gameId:gid, members:[sid]}));
+  }
+  d.teams=(d.teams||[]).map(t=>({id:t.id||uid(), gameId:t.gameId, members:(t.members||[]).slice()}));
+  delete d.apply;
   d.result=d.result||null;
   d.log=d.log||[];
   d.animal = d.animal===undefined ? true : !!d.animal;
@@ -358,7 +386,14 @@ const stat=id=>(S.stats[id]||(S.stats[id]={n:0,wait:0}));
 const seats=g=>g.copies*g.players;
 const stuById=id=>S.students.find(s=>s.id===id);
 const nameOf=id=>{ const s=stuById(id); return s? s.name : '?'; };
-const applicants=gid=>S.students.filter(s=>S.apply[s.id]===gid);
+const teamsOf=gid=>S.teams.filter(t=>t.gameId===gid);
+const teamOfStudent=id=>S.teams.find(t=>t.members.includes(id));
+const gameById=id=>S.games.find(g=>g.id===id);
+const rooms=g=>g.copies;                      // 동시에 몇 판 돌릴 수 있나
+const applicantCount=gid=>teamsOf(gid).reduce((n,t)=>n+t.members.length,0);
+/* 팀 우선순위 : ①지난번 떨어진 팀원이 있으면 먼저 ②팀원 평균 횟수가 적으면 먼저 */
+function teamWait(t){ return Math.max(0,...t.members.map(id=>stat(id).wait), 0); }
+function teamAvg(t){ return t.members.length? t.members.reduce((a,id)=>a+stat(id).n,0)/t.members.length : 0; }
 
 /* ─────────── 그리기 ─────────── */
 function render(){
@@ -384,19 +419,20 @@ function renderApply(){
     $('#applyEmpty').innerHTML='아직 우리 반 아이들이 없어요.<br>오른쪽 위 <b>⚙️ 설정</b>에서 명렬표를 붙여넣어 주세요 🙂';
     return;
   }
-  const total=Object.keys(S.apply).length;
-  $('#applyHint').innerHTML=`하고 싶은 보드게임을 누르고 <b>자기 이름</b>을 톡 누르세요. `+
-    (total? `지금 <b>${total}명</b> 신청했어요.` : '아직 신청한 친구가 없어요.');
+  const tt=S.teams.filter(t=>t.members.length).length;
+  const pp=S.teams.reduce((n,t)=>n+t.members.length,0);
+  $('#applyHint').innerHTML=`하고 싶은 보드게임을 누르고 <b>같이 할 친구들끼리 팀</b>을 만드세요. 혼자 신청해도 돼요.<br>`+
+    (tt? `지금 <b>${tt}팀 ${pp}명</b> 신청했어요.` : '아직 신청한 팀이 없어요.');
 
   const box=$('#games'); box.innerHTML='';
   S.games.forEach(g=>{
-    const n=applicants(g.id).length, cap=seats(g);
+    const n=teamsOf(g.id).filter(t=>t.members.length).length, room=rooms(g);
     const b=document.createElement('button');
-    b.className='game'+(n>cap?' full':'');
+    b.className='game'+(n>room?' full':'');
     b.innerHTML=`<div class="em">${g.emoji}</div><div class="nm">${esc(g.name)}</div>`+
-      `<div class="cap">${g.copies}개 × ${g.players}명 = ${cap}자리</div>`+
-      `<div class="cnt">${n}명 신청${n>cap?' · 경쟁!':''}</div>`;
-    b.onclick=()=>openPick(g);
+      `<div class="cap">${g.copies}판 동시에 · 한 판 ${g.players}명까지</div>`+
+      `<div class="cnt">${n}팀 신청${n>room?' · 경쟁!':''}</div>`;
+    b.onclick=()=>openTeams(g);
     box.appendChild(b);
   });
 }
@@ -407,18 +443,21 @@ function renderResult(){
   $('#res').hidden=!r;
   $('#resultHint').hidden=!r;
   if(!r){
-    $('#resEmpty').innerHTML='아직 뽑기를 하지 않았어요.<br><b>✋ 신청</b>에서 신청을 받고<br>아래 <b>🎲 뽑기!</b>를 눌러주세요 🙂';
+    $('#resEmpty').innerHTML='아직 뽑기를 하지 않았어요.<br><b>✋ 신청</b>에서 팀을 받고<br>아래 <b>🎲 뽑기!</b>를 눌러주세요 🙂';
     return;
   }
-  $('#resultHint').innerHTML=`<b>${r.at}</b> 뽑기 결과예요. 못 뽑힌 친구는 <b>다음 뽑기에서 1순위</b>가 됩니다 🙂`;
+  $('#resultHint').innerHTML=`<b>${r.at}</b> 뽑기 결과예요. 못 뽑힌 팀은 <b>다음 뽑기에서 1순위</b>가 됩니다 🙂`;
   const box=$('#res'); box.innerHTML='';
   S.games.forEach(g=>{
     const w=(r.picks[g.id]||[]), wt=(r.waiting[g.id]||[]);
     if(!w.length && !wt.length) return;
     const d=document.createElement('div'); d.className='rcard';
-    d.innerHTML=`<h4>${g.emoji} ${esc(g.name)} <span>${w.length}/${seats(g)}자리</span></h4>`+
-      `<div class="win">${w.map(id=>`<b>${esc(nameOf(id))}</b>`).join('')||'<span class="wait">신청한 친구가 없었어요</span>'}</div>`+
-      (wt.length? `<div class="wait">다음 차례 : <b>${wt.map(id=>esc(nameOf(id))).join(', ')}</b></div>`:'');
+    d.innerHTML=`<h4>${g.emoji} ${esc(g.name)} <span>${w.length}/${g.copies}판</span></h4>`+
+      (w.length
+        ? w.map((m,i)=>`<div class="tbox"><div class="lb">${i+1}번 판</div>`+
+            `<div class="win">${m.map(id=>`<b>${esc(nameOf(id))}</b>`).join('')}</div></div>`).join('')
+        : '<span class="wait">신청한 팀이 없었어요</span>')+
+      (wt.length? `<div class="wait">다음 차례 ⏳ ${wt.map(m=>'<b>'+m.map(id=>esc(nameOf(id))).join('·')+'</b>').join(' , ')}</div>`:'');
     box.appendChild(d);
   });
 }
@@ -444,62 +483,113 @@ function renderRank(){
     : '';
 }
 
-/* ─────────── 신청 ─────────── */
-function openPick(g){
-  pickGame=g;
-  $('#pickTitle').innerHTML=`${g.emoji} ${esc(g.name)} <span style="font-size:.6em;color:var(--sub)">${seats(g)}자리</span>`;
-  $('#pickHint').innerHTML='자기 이름을 톡 누르면 신청돼요. 다시 누르면 취소됩니다.<br>다른 게임에 신청했던 친구는 <b>이쪽으로 옮겨져요.</b>';
-  drawPick();
+/* ─────────── 팀 만들기 ─────────── */
+let pickGameObj=null, activeTeam=null;
+
+function openTeams(g){
+  pickGameObj=g;
+  const mine=teamsOf(g.id);
+  activeTeam = mine.length? mine[mine.length-1].id : null;
+  if(!activeTeam){ const t={id:uid(), gameId:g.id, members:[]}; S.teams.push(t); activeTeam=t.id; save(); }
+  $('#pickTitle').innerHTML=`${g.emoji} ${esc(g.name)} <span style="font-size:.6em;color:var(--sub)">${g.copies}판 · 한 판 ${g.players}명까지</span>`;
+  $('#pickHint').innerHTML='같이 할 친구들끼리 <b>한 팀</b>으로 묶어서 신청하세요. 혼자여도 괜찮아요.<br>'+
+    '팀을 고른 다음 아래에서 <b>이름을 톡</b> 누르면 그 팀에 들어갑니다.';
+  drawTeams();
   $('#mPick').classList.add('on');
 }
+
+function drawTeams(){
+  const g=pickGameObj;
+  const list=teamsOf(g.id);
+  const box=$('#teamList'); box.innerHTML='';
+  list.forEach((t,i)=>{
+    const el=document.createElement('div');
+    el.className='team'+(t.id===activeTeam?' on':'');
+    el.innerHTML=`<div class="tt">${i+1}번 팀</div>`+
+      `<div class="mm">${t.members.length
+        ? t.members.map(id=>`<b>${esc(nameOf(id))}</b>`).join('')
+        : '<span class="none">아직 아무도 없어요 — 아래에서 이름을 누르세요</span>'}</div>`+
+      `<div class="cnt">${t.members.length}/${g.players}명</div>`+
+      `<button class="del">팀 지우기</button>`;
+    el.onclick=e=>{ if(e.target.classList.contains('del')) return; activeTeam=t.id; drawTeams(); };
+    el.querySelector('.del').onclick=()=>{
+      S.teams=S.teams.filter(x=>x.id!==t.id);
+      if(activeTeam===t.id) activeTeam=(teamsOf(g.id)[0]||{}).id||null;
+      save(); drawTeams(); renderApply();
+    };
+    box.appendChild(el);
+  });
+
+  const at=S.teams.find(t=>t.id===activeTeam);
+  const idx=list.findIndex(t=>t.id===activeTeam)+1;
+  $('#pickBar').innerHTML = at
+    ? `지금 채우는 팀 : <b>${idx}번 팀</b> (${at.members.length}/${g.players}명)`
+    : '먼저 <b>＋ 새 팀 만들기</b>를 눌러주세요';
+  drawPick();
+}
+
 function drawPick(){
+  const g=pickGameObj, at=S.teams.find(t=>t.id===activeTeam);
   const box=$('#pickStus'); box.innerHTML='';
   S.students.forEach(s=>{
-    const cur=S.apply[s.id];
-    const mine=cur===pickGame.id;
-    const other=cur&&!mine? S.games.find(g=>g.id===cur) : null;
+    const t=teamOfStudent(s.id);
+    const mine = at && t && t.id===at.id;
+    const other = t && !mine ? t : null;
+    const otherGame = other? gameById(other.gameId) : null;
     const b=document.createElement('button');
     b.className='stu'+(mine?' on':'')+(other?' other':'');
     const c=stat(s.id).n;
     b.innerHTML=(c?`<div class="cnt">${c}번</div>`:'')+
       (S.animal?`<div class="an">${animalOf(s)}</div>`:'')+
       `<div class="no">${s.no}번</div><div class="nm">${esc(s.name)}</div>`+
-      `<div class="tag">${mine?'✅ 신청함':(other? other.emoji+' '+esc(other.name) : '')}</div>`;
+      `<div class="tag">${mine?'✅ 우리 팀':(otherGame? otherGame.emoji+' '+esc(otherGame.name) : '')}</div>`;
     b.onclick=()=>{
-      if(mine) delete S.apply[s.id]; else S.apply[s.id]=pickGame.id;
-      save(); drawPick(); renderApply();
+      if(!at){ toast('먼저 팀을 만들어 주세요 🙂'); return; }
+      if(mine){ at.members=at.members.filter(x=>x!==s.id); }
+      else{
+        if(at.members.length>=g.players){ toast(`한 팀은 ${g.players}명까지예요 🙂`); return; }
+        if(other) other.members=other.members.filter(x=>x!==s.id);   // 다른 팀에서 옮겨온다
+        at.members.push(s.id);
+      }
+      S.teams=S.teams.filter(t2=>t2.members.length || t2.id===activeTeam);  // 빈 팀 정리
+      save(); drawTeams(); renderApply();
     };
     box.appendChild(b);
   });
 }
+
+$('#btnAddTeam').onclick=()=>{
+  const t={id:uid(), gameId:pickGameObj.id, members:[]};
+  S.teams.push(t); activeTeam=t.id; save(); drawTeams(); renderApply();
+};
 
 /* ─────────── 뽑기 ─────────── */
 function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
 
 function draw(){
   if(!S.students.length){ toast('명렬표를 먼저 넣어주세요 🙂'); return; }
-  if(!Object.keys(S.apply).length){ toast('아직 신청한 친구가 없어요 🙂'); return; }
+  const live=S.teams.filter(t=>t.members.length);
+  if(!live.length){ toast('아직 신청한 팀이 없어요 🙂'); return; }
 
   const picks={}, waiting={};
   S.games.forEach(g=>{
-    // ① 무작위로 섞고 ② 기다린 사람 먼저 ③ 적게 한 사람 먼저
-    const list=shuffle(applicants(g.id).slice())
-      .sort((a,b)=> stat(b.id).wait-stat(a.id).wait || stat(a.id).n-stat(b.id).n);
-    const cap=seats(g);
-    picks[g.id]=list.slice(0,cap).map(s=>s.id);
-    waiting[g.id]=list.slice(cap).map(s=>s.id);
+    // ① 무작위로 섞고 ② 지난번 떨어진 팀 먼저 ③ 팀원 평균 횟수가 적은 팀 먼저
+    const list=shuffle(teamsOf(g.id).filter(t=>t.members.length))
+      .sort((a,b)=> teamWait(b)-teamWait(a) || teamAvg(a)-teamAvg(b));
+    picks[g.id]=list.slice(0,rooms(g)).map(t=>t.members.slice());
+    waiting[g.id]=list.slice(rooms(g)).map(t=>t.members.slice());
   });
 
-  // 기록 반영: 뽑힌 사람 +1 / 못 뽑힌 사람 대기 +1
-  Object.values(picks).flat().forEach(id=>{ const t=stat(id); t.n++; t.wait=0; });
-  Object.values(waiting).flat().forEach(id=>{ stat(id).wait++; });
+  // 기록 반영: 뽑힌 팀원 +1 / 떨어진 팀원 대기 +1
+  Object.values(picks).flat().flat().forEach(id=>{ const t=stat(id); t.n++; t.wait=0; });
+  Object.values(waiting).flat().flat().forEach(id=>{ stat(id).wait++; });
 
   const at=now();
   S.result={at, picks, waiting};
   const text=S.games.filter(g=>(picks[g.id]||[]).length)
-    .map(g=>`${g.emoji}${g.name} ${picks[g.id].map(nameOf).join('·')}`).join(' / ');
+    .map(g=>`${g.emoji}${g.name} ${picks[g.id].map(m=>m.map(nameOf).join('·')).join(' / ')}`).join(' , ');
   S.log.unshift({at, text}); S.log=S.log.slice(0,40);
-  S.apply={};
+  S.teams=[];
   save();
   view='result'; render(); openShow();
 }
@@ -515,9 +605,10 @@ function openShow(){
     const w=(r.picks[g.id]||[]), wt=(r.waiting[g.id]||[]);
     if(!w.length && !wt.length) return;
     const d=document.createElement('div'); d.className='sg';
-    d.innerHTML=`<h3>${g.emoji} ${esc(g.name)} <span>${w.length}/${seats(g)}자리</span></h3>`+
-      `<div class="names">${w.map(id=>`<b>${esc(nameOf(id))}</b>`).join('')}</div>`+
-      (wt.length? `<div class="wt">다음 차례 ⏳ ${wt.map(id=>esc(nameOf(id))).join(', ')}</div>`:'');
+    d.innerHTML=`<h3>${g.emoji} ${esc(g.name)} <span>${w.length}/${g.copies}판</span></h3>`+
+      w.map((m,i)=>`<div class="tbox">`+(w.length>1?`<div class="lb">${i+1}번 판</div>`:'')+
+        `<div class="names">${m.map(id=>`<b>${esc(nameOf(id))}</b>`).join('')}</div></div>`).join('')+
+      (wt.length? `<div class="wt">다음 차례 ⏳ ${wt.map(m=>m.map(id=>esc(nameOf(id))).join('·')).join(' , ')}</div>`:'');
     box.appendChild(d);
   });
   confettiOn();
@@ -618,7 +709,8 @@ $('#btnSaveSetting').onclick=()=>{
   const next=names.map((n,i)=>({id:oldByName[n]||uid(), no:i+1, name:n}));
   const keep=new Set(next.map(s=>s.id));
   Object.keys(S.stats).forEach(k=>{ if(!keep.has(k)) delete S.stats[k]; });
-  Object.keys(S.apply).forEach(k=>{ if(!keep.has(k)) delete S.apply[k]; });
+  S.teams.forEach(t=>{ t.members=t.members.filter(id=>keep.has(id)); });
+  S.teams=S.teams.filter(t=>t.members.length);
   S.students=next;
   save(); render(); $('#mSetting').classList.remove('on');
 };
@@ -671,9 +763,9 @@ $('#btnDraw').onclick=draw;
 $('#btnShow').onclick=openShow;
 $('#btnCloseShow').onclick=()=>{ $('#show').classList.remove('on'); $('#confetti').innerHTML=''; };
 $('#btnClear').onclick=()=>{
-  if(!Object.keys(S.apply).length){ toast('신청한 친구가 없어요 🙂'); return; }
+  if(!S.teams.some(t=>t.members.length)){ toast('신청한 팀이 없어요 🙂'); return; }
   if(!confirm('이번 신청을 모두 지울까요?')) return;
-  S.apply={}; save(); render();
+  S.teams=[]; save(); render();
 };
 $('#btnClosePick').onclick=()=>$('#mPick').classList.remove('on');
 $$('.modal').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('on'); }));
