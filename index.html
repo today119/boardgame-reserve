@@ -142,6 +142,21 @@ main{padding:14px 12px 120px}
 .sg .tbox{border-width:3px;border-radius:20px;padding:.6em .8em;margin-bottom:1vh}
 .sg .tbox .lb{font-size:clamp(15px,2.1vh,26px)}
 
+/* 대기 팀 — 주황으로 구분 */
+.tbox.next{border-color:#ffd9b0;background:#fffaf3}
+.tbox.next .lb{color:#c9741c}
+.tbox.next .win b,.tbox.next .names b{background:#fff3e6;border-color:#ffcb96;color:#c9741c}
+.sg .tbox.next .names b{font-size:clamp(21px,4.3vh,52px)}
+.nexthead{margin:1.2vh 0 .6vh;font-size:clamp(16px,2.4vh,30px);color:#c9741c}
+/* 팀 수에 맞춰 자동으로 줄여 한 화면에 담는다 (--sc: 1 ~ 0.5) */
+.showbox{--sc:1}
+.showbox .sg .names b{font-size:calc(clamp(26px,5.6vh,68px) * var(--sc))}
+.showbox .sg .tbox.next .names b{font-size:calc(clamp(21px,4.3vh,52px) * var(--sc))}
+.showbox .sg h3{font-size:calc(clamp(22px,3.4vh,44px) * var(--sc))}
+.showbox .sg .tbox .lb{font-size:calc(clamp(15px,2.1vh,26px) * var(--sc))}
+.showbox .nexthead{font-size:calc(clamp(16px,2.4vh,30px) * var(--sc))}
+.rcard .nexthead{margin:.7em 0 .35em;font-size:clamp(15px,1.9vh,20px)}
+
 /* 기록 */
 .rank{display:flex;flex-direction:column;gap:6px}
 .rrow{display:flex;align-items:center;gap:10px;background:#fff;border:2px solid var(--line);
@@ -171,7 +186,8 @@ main{padding:14px 12px 120px}
 .show>*{position:relative;z-index:1}
 .show h2{margin:0;text-align:center;font-size:clamp(26px,5.4vh,60px)}
 .show .sub{text-align:center;color:var(--sub);font-size:clamp(14px,2vh,22px);margin-top:.2em}
-.showbox{flex:1;overflow:auto;margin-top:2vh;display:flex;flex-direction:column;gap:1.6vh}
+.showbox{flex:1;overflow:auto;margin-top:2vh;display:grid;align-content:start;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,430px),1fr));gap:1.4vh 1.1vw}
 .sg{background:#fff;border:4px solid var(--line);border-radius:24px;padding:1vh 1.6vw 1.4vh;box-shadow:0 5px 0 rgba(0,0,0,.07)}
 .sg h3{margin:0 0 .3em;font-size:clamp(22px,3.4vh,44px);display:flex;align-items:center;gap:.35em}
 .sg h3 span{font-size:.55em;color:var(--sub)}
@@ -457,7 +473,9 @@ function renderResult(){
         ? w.map((m,i)=>`<div class="tbox"><div class="lb">${i+1}번 판</div>`+
             `<div class="win">${m.map(id=>`<b>${esc(nameOf(id))}</b>`).join('')}</div></div>`).join('')
         : '<span class="wait">신청한 팀이 없었어요</span>')+
-      (wt.length? `<div class="wait">다음 차례 ⏳ ${wt.map(m=>'<b>'+m.map(id=>esc(nameOf(id))).join('·')+'</b>').join(' , ')}</div>`:'');
+      (wt.length? `<div class="nexthead">⏳ 다음 쉬는 시간 차례</div>`+
+        wt.map((m,i)=>`<div class="tbox next"><div class="lb">${i+1}순위</div>`+
+          `<div class="win">${m.map(id=>`<b>${esc(nameOf(id))}</b>`).join('')}</div></div>`).join('') : '');
     box.appendChild(d);
   });
 }
@@ -599,7 +617,9 @@ function openShow(){
   const r=S.result;
   if(!r){ toast('먼저 뽑기를 해주세요 🙂'); return; }
   $('#showTitle').textContent='🎲 오늘의 보드게임';
-  $('#showSub').textContent=r.at+' 뽑기 결과';
+  const anyWait=S.games.some(g=>(r.waiting[g.id]||[]).length);
+  $('#showSub').innerHTML=r.at+' 뽑기 결과'+
+    (anyWait? ' &nbsp;·&nbsp; <b style="color:#c9741c">⏳ 순서대로 다음 쉬는 시간에 먼저 해요!</b>' : '');
   const box=$('#showBox'); box.innerHTML='';
   S.games.forEach(g=>{
     const w=(r.picks[g.id]||[]), wt=(r.waiting[g.id]||[]);
@@ -608,12 +628,27 @@ function openShow(){
     d.innerHTML=`<h3>${g.emoji} ${esc(g.name)} <span>${w.length}/${g.copies}판</span></h3>`+
       w.map((m,i)=>`<div class="tbox">`+(w.length>1?`<div class="lb">${i+1}번 판</div>`:'')+
         `<div class="names">${m.map(id=>`<b>${esc(nameOf(id))}</b>`).join('')}</div></div>`).join('')+
-      (wt.length? `<div class="wt">다음 차례 ⏳ ${wt.map(m=>m.map(id=>esc(nameOf(id))).join('·')).join(' , ')}</div>`:'');
+      (wt.length? `<div class="nexthead">⏳ 다음 쉬는 시간 차례</div>`+
+        wt.map((m,i)=>`<div class="tbox next"><div class="lb">${i+1}순위</div>`+
+          `<div class="names">${m.map(id=>`<b>${esc(nameOf(id))}</b>`).join('')}</div></div>`).join('') : '');
     box.appendChild(d);
   });
   confettiOn();
   $('#show').classList.add('on');
+  fitShow();
 }
+/* 스크롤 없이 한 화면에 들어올 때까지 글씨를 줄인다 */
+function fitShow(){
+  const box=$('#showBox');
+  let sc=1;
+  box.style.setProperty('--sc', sc);
+  while(box.scrollHeight > box.clientHeight + 2 && sc > 0.5){
+    sc=Math.round((sc-0.05)*100)/100;
+    box.style.setProperty('--sc', sc);
+  }
+}
+window.addEventListener('resize',()=>{ if($('#show').classList.contains('on')) fitShow(); });
+
 const CONF=['#ff8fb1','#ffab5e','#5ec98d','#8b6fd6','#7fb6f5','#ffd94d'];
 function confettiOn(){
   const box=$('#confetti'); box.innerHTML='';
