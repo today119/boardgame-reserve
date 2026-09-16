@@ -337,8 +337,11 @@ textarea{min-height:26vh;line-height:1.55;resize:vertical}
     <textarea id="inBackup" style="min-height:8vh;font-size:13px" placeholder="여기에 백업 코드를 붙여넣으세요"></textarea>
     <div class="row">
       <button class="btn mini" id="btnCopyBackup">📎 코드 복사</button>
+      <button class="btn mini" id="btnCopyLink">🔗 링크 복사</button>
       <button class="btn mini" id="btnRestore">📥 되살리기</button>
     </div>
+    <p class="hint">붙여넣기가 어려운 기기(학교 패드 등)라면 <b>「🔗 링크 복사」</b>를 쓰세요.
+      메일로 보내 그 <b>링크만 눌러도</b> 이 내용이 그대로 들어갑니다.</p>
 
     <div class="toggle" id="tgAnimal"><div class="sw"><i></i></div><div>이름 옆에 <b>동물 친구</b> 보여주기 🐻</div></div>
 
@@ -768,8 +771,14 @@ function encodeBackup(){
     st:S.students.map(s=>[stat(s.id).n, stat(s.id).wait])};
   return btoa(unescape(encodeURIComponent(JSON.stringify(payload)))).replace(/=+$/,'');
 }
+function backupLink(){
+  /* 링크 안에 넣을 땐 +,/ 가 깨질 수 있어 base64url 로 바꾼다 */
+  const c=encodeBackup().replace(/\+/g,'-').replace(/\//g,'_');
+  return location.origin+location.pathname+'#load='+c;
+}
 function decodeBackup(code){
-  const d=JSON.parse(decodeURIComponent(escape(atob(code.trim().replace(/\s+/g,'')))));
+  const c=code.trim().replace(/\s+/g,'').replace(/-/g,'+').replace(/_/g,'/');
+  const d=JSON.parse(decodeURIComponent(escape(atob(c))));
   if(!d||!Array.isArray(d.n)||!d.n.length) throw new Error('bad');
   const students=d.n.map((name,i)=>({id:uid(), no:i+1, name:String(name)}));
   const stats={}; (d.st||[]).forEach((v,i)=>{ if(students[i]) stats[students[i].id]={n:+v[0]||0, wait:+v[1]||0}; });
@@ -783,9 +792,16 @@ $('#btnCopyBackup').onclick=async ()=>{
   try{ await navigator.clipboard.writeText(code); toast('코드를 복사했어요 📎 카톡에 붙여넣어 두세요!'); }
   catch(e){ toast('아래 칸의 코드를 직접 복사해 주세요 🙂'); }
 };
+$('#btnCopyLink').onclick=async ()=>{
+  if(!S.students.length){ toast('먼저 명렬표를 저장해 주세요 🙂'); return; }
+  const url=backupLink(); $('#inBackup').value=url;
+  try{ await navigator.clipboard.writeText(url); toast('링크를 복사했어요 🔗 메일·카톡으로 보내세요!'); }
+  catch(e){ toast('아래 칸의 링크를 직접 복사해 주세요 🙂'); }
+};
 $('#btnRestore').onclick=()=>{
-  const code=$('#inBackup').value.trim();
+  let code=$('#inBackup').value.trim();
   if(!code){ toast('먼저 코드를 붙여넣어 주세요 🙂'); return; }
+  const h=code.match(/#load=(.+)$/); if(h) code=h[1];   /* 링크를 통째로 붙여넣어도 되게 */
   let d; try{ d=decodeBackup(code); }catch(e){ toast('코드가 올바르지 않아요 😢'); return; }
   if(!confirm(`「${d.klass||'우리 반'}」 ${d.students.length}명으로 되살릴까요?\n지금 내용은 사라져요.`)) return;
   S=normalize(d); save(); render(); $('#mSetting').classList.remove('on');
@@ -819,6 +835,17 @@ function toast(msg){
   t.textContent=msg; t.style.opacity='1';
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.style.opacity='0',1700);
 }
+
+/* 링크(#load=…)로 열었을 때 — 붙여넣기 없이 바로 되살리기 */
+(function(){
+  const m=location.hash.match(/^#load=(.+)$/); if(!m) return;
+  let d; try{ d=decodeBackup(decodeURIComponent(m[1])); }
+  catch(e){ history.replaceState(null,'',location.pathname); setTimeout(()=>toast('링크가 올바르지 않아요 😢'),300); return; }
+  history.replaceState(null,'',location.pathname);   /* 주소창을 정리해 새로고침해도 다시 묻지 않게 */
+  if(!confirm(`「${d.klass||'우리 반'}」 ${d.students.length}명을 이 기기로 가져올까요?\n지금 이 기기의 내용은 사라져요.`)) return;
+  S=normalize(d); save();
+  setTimeout(()=>toast('가져왔어요! 🎉'),300);
+})();
 
 render();
 if(!S.students.length) $('#btnSetting').click();
