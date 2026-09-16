@@ -400,6 +400,17 @@ function normalize(d){
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function now(){ const t=new Date(); return `${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`; }
+const DOW=['일','월','화','수','목','금','토'];
+/* 오늘 날짜 — 「9월 16일 (화)」 */
+function dayLabel(){ const t=new Date(); return `${t.getMonth()+1}월 ${t.getDate()}일 (${DOW[t.getDay()]})`; }
+/* 뽑기 시각(「9/16 14:05」)을 보기 좋게 — 오늘 것이면 요일까지 붙인다 */
+function atLabel(at){
+  const m=String(at||'').match(/^(\d{1,2})\/(\d{1,2})\s*(.*)$/);
+  if(!m) return at||'';
+  const t=new Date();
+  const isToday = +m[1]===t.getMonth()+1 && +m[2]===t.getDate();
+  return isToday ? `${dayLabel()} ${m[3]}` : `${m[1]}월 ${m[2]}일 ${m[3]}`;
+}
 
 const stat=id=>(S.stats[id]||(S.stats[id]={n:0,wait:0}));
 const seats=g=>g.copies*g.players;
@@ -416,7 +427,7 @@ function teamAvg(t){ return t.members.length? t.members.reduce((a,id)=>a+stat(id
 
 /* ─────────── 그리기 ─────────── */
 function render(){
-  $('#klassName').textContent=S.klass;
+  $('#klassName').textContent=`${S.klass} · ${dayLabel()}`;
   $$('.tab').forEach(t=>t.classList.toggle('on', t.dataset.v===view));
   $('#vApply').hidden  = view!=='apply';
   $('#vResult').hidden = view!=='result';
@@ -465,7 +476,7 @@ function renderResult(){
     $('#resEmpty').innerHTML='아직 뽑기를 하지 않았어요.<br><b>✋ 신청</b>에서 팀을 받고<br>아래 <b>🎲 뽑기!</b>를 눌러주세요 🙂';
     return;
   }
-  $('#resultHint').innerHTML=`<b>${r.at}</b> 뽑기 결과예요. 못 뽑힌 팀은 <b>다음 뽑기에서 1순위</b>가 됩니다 🙂`;
+  $('#resultHint').innerHTML=`<b>${atLabel(r.at)}</b> 뽑기 결과예요. 못 뽑힌 팀은 <b>다음 뽑기에서 1순위</b>가 됩니다 🙂`;
   const box=$('#res'); box.innerHTML='';
   S.games.forEach(g=>{
     const w=(r.picks[g.id]||[]), wt=(r.waiting[g.id]||[]);
@@ -500,7 +511,7 @@ function renderRank(){
     box.appendChild(el);
   });
   $('#log').innerHTML = S.log.length
-    ? '<b>지난 뽑기</b>'+S.log.slice(0,12).map(l=>`<div>${esc(l.at)} — ${esc(l.text)}</div>`).join('')
+    ? '<b>지난 뽑기</b>'+S.log.slice(0,12).map(l=>`<div>${esc(atLabel(l.at))} — ${esc(l.text)}</div>`).join('')
     : '';
 }
 
@@ -621,7 +632,7 @@ function openShow(){
   if(!r){ toast('먼저 뽑기를 해주세요 🙂'); return; }
   $('#showTitle').textContent='🎲 오늘의 보드게임';
   const anyWait=S.games.some(g=>(r.waiting[g.id]||[]).length);
-  $('#showSub').innerHTML=r.at+' 뽑기 결과'+
+  $('#showSub').innerHTML=`${S.klass} · ${atLabel(r.at)} 뽑기 결과`+
     (anyWait? ' &nbsp;·&nbsp; <b style="color:#c9741c">⏳ 순서대로 다음 쉬는 시간에 먼저 해요!</b>' : '');
   const box=$('#showBox'); box.innerHTML='';
   S.games.forEach(g=>{
@@ -853,7 +864,7 @@ if(!S.students.length) $('#btnSetting').click();
 <script>
 /* 새 버전이 올라오면 브라우저가 옛 화면을 붙들고 있지 않도록 스스로 다시 받아온다 */
 (function(){
-  var APP_VER = "20260910-0936";
+  var APP_VER = "20260916-1405";
   try{
     fetch("version.txt?t=" + Date.now(), {cache:"no-store"})
       .then(function(r){ return r.ok ? r.text() : ""; })
